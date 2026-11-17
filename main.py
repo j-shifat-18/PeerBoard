@@ -104,17 +104,19 @@ def delete_question(question_id: int, session: Session = Depends(get_session)):
 
     if not question:
         raise HTTPException(status_code=404, detail="Question not found")
+    
+    question.accepted_answer_id = None
 
+    session.flush()
+    
     statement = select(Answer).where(Answer.question_id == question_id)
+    
+    answers = session.exec(statement).all()
+    # print(answers)
 
-    answers = session.exec(statement).first()
-    print(answers)
-
-    if answers:
-        raise HTTPException(
-            status_code=400, detail="Cannot delete a question that has answers"
-        )
-
+    for answer in answers:
+        session.delete(answer)
+    
     session.delete(question)
     session.commit()
 
@@ -173,16 +175,51 @@ def create_answer(
     return answer
 
 
-@app.get("/questions/{question_id}/answers" , response_model=list[Answer] )
-def get_answers(question_id : int , session : Session = Depends(get_session)):
+@app.get("/questions/{question_id}/answers", response_model=list[Answer])
+def get_answers(question_id: int, session: Session = Depends(get_session)):
 
-    answers = session.exec(select(Answer).where(Answer.question_id==question_id)).all()
-
+    answers = session.exec(
+        select(Answer)
+        .where(Answer.question_id == question_id)
+        .order_by(Answer.created_at)
+    ).all()
 
     if not answers:
         raise HTTPException(
-            status_code=404,
-            detail="No answers found for this question."
+            status_code=404, detail="No answers found for this question."
         )
-    
+
     return answers
+
+
+@app.post(
+    "/questions/{question_id}/accept/{answer_id}",
+    response_model= int,
+    status_code=201,
+)
+def accept_answer(
+    question_id: int, answer_id: int, session: Session = Depends(get_session)
+):
+
+    question = session.get(Question, question_id)
+
+    if not question:
+        raise HTTPException(status_code=404, detail="Question not found")
+
+    if question.accepted_answer_id is not None:
+        raise HTTPException(status_code=409, detail="One Answer already accepted")
+    
+    answer = session.get(Answer, answer_id)
+
+    if not answer or answer.question_id != question_id:
+        raise HTTPException(
+            status_code=404,
+            detail="Answer not found for this question"
+        )
+
+    question.accepted_answer_id = answer_id
+
+    session.commit()
+    session.refresh(question)
+
+    return question.accepted_answer_id
