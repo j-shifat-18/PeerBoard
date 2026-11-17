@@ -8,6 +8,7 @@ from sqlalchemy.exc import IntegrityError
 from database import create_db_and_tables, get_session
 from models import User, Question, Answer
 from datetime import datetime, timezone
+from sqlalchemy import Column, JSON, Text
 
 
 @asynccontextmanager
@@ -33,6 +34,11 @@ class QuestionCreate(BaseModel):
     body: str
     course_code: str
     tags: list[str] = Field(default_factory=list)
+    author_id: int
+
+
+class AnswerCreate(BaseModel):
+    body: str
     author_id: int
 
 
@@ -142,3 +148,41 @@ def update_question(
     session.refresh(question)
 
     return question
+
+
+@app.post("/questions/{question_id}/answers", response_model=Answer, status_code=201)
+def create_answer(
+    question_id: int, data: AnswerCreate, session: Session = Depends(get_session)
+):
+
+    author = session.get(User, data.author_id)
+
+    if not author:
+        raise HTTPException(status_code=404, detail="Author not found")
+
+    question = session.get(Question, question_id)
+
+    if not author:
+        raise HTTPException(status_code=404, detail="Question not found")
+
+    answer = Answer(author_id=author.id, body=data.body, question_id=question_id)
+
+    session.add(answer)
+    session.commit()
+    session.refresh(answer)
+    return answer
+
+
+@app.get("/questions/{question_id}/answers" , response_model=list[Answer] )
+def get_answers(question_id : int , session : Session = Depends(get_session)):
+
+    answers = session.exec(select(Answer).where(Answer.question_id==question_id)).all()
+
+
+    if not answers:
+        raise HTTPException(
+            status_code=404,
+            detail="No answers found for this question."
+        )
+    
+    return answers
